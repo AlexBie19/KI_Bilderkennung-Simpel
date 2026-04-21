@@ -1,0 +1,9 @@
+# Python dependencies for training the Fashion-MNIST clothing classifier.
+# Install with:  pip install -r requirements.txt
+
+# Deep learning framework and TFLite converter.
+# TensorFlow 2.13+ includes the Fashion-MNIST dataset via keras.datasets.
+tensorflow>=2.13.0,<3.0.0
+
+# Numerical arrays (used for image data manipulation).
+numpy>=1.23.0,<2.0.0

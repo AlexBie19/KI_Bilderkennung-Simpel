@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iOS Info.plist for the Clothing Recognizer app.
+
+  Required privacy usage descriptions (NSUsageDescription keys):
+    NSCameraUsageDescription
+      – Tells iOS *why* the app needs camera access. The system displays
+        this string in the permission alert dialog shown to the user.
+        Without this key the app crashes with a "missing purpose string"
+        exception on iOS 14+.
+
+    NSPhotoLibraryUsageDescription
+      – Required when saving or reading photos from the system photo library.
+        Not needed for our current flow (photos are kept in a temp directory),
+        but included so future "save to gallery" features compile cleanly.
+
+  Apple review guideline 5.1.1 requires that usage description strings
+  clearly explain the purpose; vague strings may cause App Store rejection.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Camera permission – displayed in the system permission dialog -->
+    <key>NSCameraUsageDescription</key>
+    <string>This app uses the camera to take a photo of a clothing item so the AI can identify its type (e.g. T-shirt, Hoodie, Jeans).</string>
+
+    <!-- Photo library permission – future use (save result images) -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>This app may save classified clothing photos to your photo library.</string>
+
+    <!-- ── Standard Flutter iOS keys ─────────────────────────────────── -->
+
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>Clothing Recognizer</string>
+
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleName</key>
+    <string>clothing_recognizer</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>$(FLUTTER_BUILD_NAME)</string>
+
+    <key>CFBundleSignature</key>
+    <string>????</string>
+
+    <key>CFBundleVersion</key>
+    <string>$(FLUTTER_BUILD_NUMBER)</string>
+
+    <!-- Landscape orientations are disabled so the camera preview is always portrait -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- Minimum iOS version required by Flutter 3 and tflite_flutter -->
+    <key>MinimumOSVersion</key>
+    <string>12.0</string>
+
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+</dict>
+</plist>

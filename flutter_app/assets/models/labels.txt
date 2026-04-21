@@ -1,0 +1,25 @@
+# Fashion-MNIST clothing class labels
+# One label per line; the line index (0-based) matches the model's output neuron.
+# These 10 categories come directly from the Fashion-MNIST dataset by Zalando.
+#
+# Index → Label mapping:
+#   0  T-shirt/top
+#   1  Trouser
+#   2  Pullover
+#   3  Dress
+#   4  Coat
+#   5  Sandal
+#   6  Shirt
+#   7  Sneaker
+#   8  Bag
+#   9  Ankle boot
+T-shirt/top
+Trouser
+Pullover
+Dress
+Coat
+Sandal
+Shirt
+Sneaker
+Bag
+Ankle boot
