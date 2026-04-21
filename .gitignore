@@ -16,6 +16,12 @@ eggs/
 .eggs/
 lib/
 lib64/
+
+# Do NOT ignore the Flutter app source directory (flutter_app/lib/).
+# The "lib/" rule above would otherwise swallow it because gitignore
+# matches the pattern against every path component.
+!flutter_app/lib/
+!flutter_app/lib/**
 parts/
 sdist/
 var/
