@@ -2,9 +2,9 @@
 """
 train_fashion_mnist.py
 ======================
-Trains a Convolutional Neural Network (CNN) on the Fashion-MNIST dataset and
-exports the trained model as a TensorFlow Lite (TFLite) file that can be
-bundled inside the Flutter app.
+Trains a deep Convolutional Neural Network (CNN) on the *full* Fashion-MNIST
+dataset (all 70 000 samples, all 10 classes) and exports the trained model as
+a TensorFlow Lite (TFLite) file ready to be bundled inside the Flutter app.
 
 Fashion-MNIST overview
 ----------------------
@@ -17,18 +17,17 @@ Fashion-MNIST overview
     4  Coat           9  Ankle boot
 - 60 000 training samples / 10 000 test samples.
 
-Extension notes
----------------
-To add color and pattern recognition later:
-  1. Collect an RGB dataset (or augment Fashion-MNIST with synthetic color).
-  2. Define a new model architecture with 3 input channels.
-  3. Add new output heads or create a second model for color / pattern.
-  4. Export that model as a separate TFLite file and add a new service class
-     in the Flutter app (no changes to the existing ClothingClassifierService).
+Architecture
+------------
+A deeper residual CNN with four convolutional blocks, batch normalisation,
+skip connections, global average pooling and two dense layers.  Trained with
+aggressive data augmentation (random flips, rotations, zoom, brightness and
+contrast jitter) so that the exported model generalises well to real camera
+photos that are pre-processed to 28 × 28 grayscale.
 
 Usage
 -----
-  python train_fashion_mnist.py [--epochs N] [--output PATH]
+  python train_fashion_mnist.py [--epochs N] [--output PATH] [--no-augment]
 
 Requirements
 ------------
@@ -54,8 +53,8 @@ GRAYSCALE_CHANNEL_COUNT: int = 1  # Fashion-MNIST is single-channel
 NUMBER_OF_CLOTHING_CLASSES: int = 10
 
 # Default training hyper-parameters – override via command-line flags.
-DEFAULT_TRAINING_EPOCHS: int = 15
-DEFAULT_BATCH_SIZE: int = 64
+DEFAULT_TRAINING_EPOCHS: int = 30
+DEFAULT_BATCH_SIZE: int = 128
 DEFAULT_VALIDATION_SPLIT: float = 0.1  # 10 % of training data used for val.
 
 # Where to write the finished TFLite model file.
@@ -74,18 +73,16 @@ DEFAULT_TFLITE_OUTPUT_PATH: str = os.path.join(
 def load_and_preprocess_fashion_mnist_dataset() -> (
     tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 ):
-    """Load Fashion-MNIST and normalise pixel values to [0.0, 1.0].
+    """Load the *full* Fashion-MNIST dataset and normalise pixel values to [0, 1].
+
+    All 60 000 training samples and all 10 000 test samples are used.
 
     Returns
     -------
-    training_images : np.ndarray
-        Shape (60 000, 28, 28, 1), dtype float32.
-    training_labels : np.ndarray
-        Shape (60 000,), dtype uint8.
-    test_images : np.ndarray
-        Shape (10 000, 28, 28, 1), dtype float32.
-    test_labels : np.ndarray
-        Shape (10 000,), dtype uint8.
+    training_images : np.ndarray   shape (60 000, 28, 28, 1), dtype float32
+    training_labels : np.ndarray   shape (60 000,), dtype uint8
+    test_images     : np.ndarray   shape (10 000, 28, 28, 1), dtype float32
+    test_labels     : np.ndarray   shape (10 000,), dtype uint8
     """
     # Keras downloads and caches the dataset automatically.
     (raw_training_images, training_labels), (raw_test_images, test_labels) = (
@@ -99,130 +96,190 @@ def load_and_preprocess_fashion_mnist_dataset() -> (
     test_images = raw_test_images.astype("float32") / 255.0
 
     # --- Add channel dimension: (N, 28, 28) → (N, 28, 28, 1) ---
-    # TensorFlow Conv2D layers expect a channel axis even for grayscale images.
+    # TensorFlow Conv2D layers require a channel axis even for grayscale images.
     training_images = np.expand_dims(training_images, axis=-1)
     test_images = np.expand_dims(test_images, axis=-1)
 
     return training_images, training_labels, test_images, test_labels
 
 
+# ── Data augmentation ─────────────────────────────────────────────────────────
+
+def build_augmentation_pipeline() -> keras.Sequential:
+    """Build an on-the-fly data augmentation pipeline applied during training.
+
+    Augmentations are chosen to simulate the variation seen in real camera
+    photos: slight rotations, horizontal mirroring, zoom and brightness shifts.
+    They do *not* include vertical flips because clothing photos are always
+    upright.
+
+    Returns a Keras Sequential model that can be passed as a ``preprocessing``
+    argument or called as a layer inside the model graph.
+    """
+    return keras.Sequential(
+        [
+            keras.layers.RandomFlip("horizontal"),
+            keras.layers.RandomRotation(factor=0.08),   # ±~29 °
+            keras.layers.RandomZoom(height_factor=0.10, width_factor=0.10),
+            keras.layers.RandomBrightness(factor=0.15),
+            keras.layers.RandomContrast(factor=0.15),
+        ],
+        name="data_augmentation",
+    )
+
+
+# ── Residual block helper ─────────────────────────────────────────────────────
+
+def _residual_block(
+    input_tensor: tf.Tensor,
+    filters: int,
+    block_name: str,
+    stride: int = 1,
+) -> tf.Tensor:
+    """Two-layer residual block with optional projection shortcut.
+
+    Layout: Conv → BN → ReLU → Conv → BN → (add shortcut) → ReLU
+
+    Parameters
+    ----------
+    input_tensor : tf.Tensor   Input feature map.
+    filters      : int         Number of output filters for both Conv layers.
+    block_name   : str         Unique prefix for all layer names in this block.
+    stride       : int         Stride applied to the first Conv (for downscaling).
+
+    Returns
+    -------
+    tf.Tensor   Output feature map after the residual addition.
+    """
+    # ── Main path ─────────────────────────────────────────────────────────
+    x = keras.layers.Conv2D(
+        filters=filters,
+        kernel_size=(3, 3),
+        strides=(stride, stride),
+        padding="same",
+        use_bias=False,
+        name=f"{block_name}_conv1",
+    )(input_tensor)
+    x = keras.layers.BatchNormalization(name=f"{block_name}_bn1")(x)
+    x = keras.layers.Activation("relu", name=f"{block_name}_relu1")(x)
+
+    x = keras.layers.Conv2D(
+        filters=filters,
+        kernel_size=(3, 3),
+        strides=(1, 1),
+        padding="same",
+        use_bias=False,
+        name=f"{block_name}_conv2",
+    )(x)
+    x = keras.layers.BatchNormalization(name=f"{block_name}_bn2")(x)
+
+    # ── Shortcut path ─────────────────────────────────────────────────────
+    # A 1×1 projection is needed when the spatial size or filter count changes.
+    shortcut = input_tensor
+    input_filters = input_tensor.shape[-1]
+    if stride != 1 or input_filters != filters:
+        shortcut = keras.layers.Conv2D(
+            filters=filters,
+            kernel_size=(1, 1),
+            strides=(stride, stride),
+            padding="same",
+            use_bias=False,
+            name=f"{block_name}_shortcut_conv",
+        )(input_tensor)
+        shortcut = keras.layers.BatchNormalization(
+            name=f"{block_name}_shortcut_bn"
+        )(shortcut)
+
+    x = keras.layers.Add(name=f"{block_name}_add")([x, shortcut])
+    x = keras.layers.Activation("relu", name=f"{block_name}_relu2")(x)
+    return x
+
+
 # ── Model architecture ────────────────────────────────────────────────────────
 
-def build_clothing_classifier_model() -> keras.Model:
-    """Build and compile the CNN clothing classifier.
+def build_clothing_classifier_model(use_augmentation: bool = True) -> keras.Model:
+    """Build and compile a deep residual CNN clothing classifier.
 
     Architecture overview
     ---------------------
     Input  28×28×1 (grayscale)
       │
-      ├─ Conv2D(32, 3×3, relu)  ──▶ BatchNorm ──▶ MaxPool(2×2)
-      ├─ Conv2D(64, 3×3, relu)  ──▶ BatchNorm ──▶ MaxPool(2×2)
-      ├─ Conv2D(128, 3×3, relu) ──▶ BatchNorm
+      ├─ [Optional] Data augmentation pipeline
+      ├─ Conv2D(32, 3×3) → BN → ReLU                (entry stem)
       │
-      ├─ GlobalAveragePooling2D
-      ├─ Dense(256, relu) ──▶ Dropout(0.4)
-      └─ Dense(10, softmax)  ← one output neuron per clothing class
-
-    Design rationale
-    ----------------
-    - Global average pooling replaces Flatten + large Dense to reduce the
-      number of parameters while retaining spatial feature information.
-    - Batch normalisation speeds up convergence and reduces overfitting.
-    - Dropout regularises the final fully-connected layer.
-    - Softmax output is compatible with both categorical cross-entropy loss
-      and the argmax extraction used in ClothingClassifierService.
-
-    Extension note
-    --------------
-    To support color / pattern recognition, define a new function
-    `build_color_pattern_classifier_model()` with an input shape of
-    (IMAGE_HEIGHT, IMAGE_WIDTH, 3) and possibly extra output heads.
-    This model remains unchanged.
+      ├─ ResidualBlock(32)  × 2
+      ├─ ResidualBlock(64,  stride=2)  × 2           (14×14)
+      ├─ ResidualBlock(128, stride=2)  × 2           (7×7)
+      ├─ ResidualBlock(256, stride=2)  × 2           (4×4)
+      │
+      ├─ GlobalAveragePooling2D                      (256-D feature vector)
+      ├─ Dense(256, relu) → BatchNorm → Dropout(0.4)
+      └─ Dense(10, softmax)   ← one neuron per Fashion-MNIST class
 
     Returns
     -------
     keras.Model
         Compiled but untrained model.
     """
-    # Input layer explicitly named for clarity when inspecting the model.
     input_layer = keras.Input(
         shape=(IMAGE_HEIGHT, IMAGE_WIDTH, GRAYSCALE_CHANNEL_COUNT),
         name="grayscale_image_input",
     )
 
-    # ── First convolutional block ─────────────────────────────────────────
-    convolution_block_1 = keras.layers.Conv2D(
+    x = input_layer
+
+    # ── Optional data augmentation (active only during training) ─────────
+    if use_augmentation:
+        x = build_augmentation_pipeline()(x)
+
+    # ── Entry stem ────────────────────────────────────────────────────────
+    x = keras.layers.Conv2D(
         filters=32,
         kernel_size=(3, 3),
-        activation="relu",
         padding="same",
-        name="conv_block1_conv",
-    )(input_layer)
-    convolution_block_1 = keras.layers.BatchNormalization(
-        name="conv_block1_batchnorm"
-    )(convolution_block_1)
-    convolution_block_1 = keras.layers.MaxPooling2D(
-        pool_size=(2, 2), name="conv_block1_maxpool"
-    )(convolution_block_1)
+        use_bias=False,
+        name="stem_conv",
+    )(x)
+    x = keras.layers.BatchNormalization(name="stem_bn")(x)
+    x = keras.layers.Activation("relu", name="stem_relu")(x)
 
-    # ── Second convolutional block ────────────────────────────────────────
-    convolution_block_2 = keras.layers.Conv2D(
-        filters=64,
-        kernel_size=(3, 3),
-        activation="relu",
-        padding="same",
-        name="conv_block2_conv",
-    )(convolution_block_1)
-    convolution_block_2 = keras.layers.BatchNormalization(
-        name="conv_block2_batchnorm"
-    )(convolution_block_2)
-    convolution_block_2 = keras.layers.MaxPooling2D(
-        pool_size=(2, 2), name="conv_block2_maxpool"
-    )(convolution_block_2)
+    # ── Stage 1: 28×28 → 28×28, 32 filters ───────────────────────────────
+    x = _residual_block(x, filters=32, block_name="stage1_block1")
+    x = _residual_block(x, filters=32, block_name="stage1_block2")
 
-    # ── Third convolutional block (no pooling to preserve spatial info) ───
-    convolution_block_3 = keras.layers.Conv2D(
-        filters=128,
-        kernel_size=(3, 3),
-        activation="relu",
-        padding="same",
-        name="conv_block3_conv",
-    )(convolution_block_2)
-    convolution_block_3 = keras.layers.BatchNormalization(
-        name="conv_block3_batchnorm"
-    )(convolution_block_3)
+    # ── Stage 2: 28×28 → 14×14, 64 filters ───────────────────────────────
+    x = _residual_block(x, filters=64, block_name="stage2_block1", stride=2)
+    x = _residual_block(x, filters=64, block_name="stage2_block2")
 
-    # ── Global average pooling ────────────────────────────────────────────
-    # Produces a 128-element feature vector regardless of spatial resolution,
-    # making the model robust to slight size variations in input images.
-    global_average_pooling = keras.layers.GlobalAveragePooling2D(
-        name="global_avg_pool"
-    )(convolution_block_3)
+    # ── Stage 3: 14×14 → 7×7, 128 filters ────────────────────────────────
+    x = _residual_block(x, filters=128, block_name="stage3_block1", stride=2)
+    x = _residual_block(x, filters=128, block_name="stage3_block2")
 
-    # ── Fully-connected classifier head ───────────────────────────────────
-    dense_features = keras.layers.Dense(
-        units=256, activation="relu", name="dense_features"
-    )(global_average_pooling)
-    dropout_regularisation = keras.layers.Dropout(
-        rate=0.4, name="dropout_regularisation"
-    )(dense_features)
+    # ── Stage 4: 7×7 → 4×4, 256 filters ─────────────────────────────────
+    x = _residual_block(x, filters=256, block_name="stage4_block1", stride=2)
+    x = _residual_block(x, filters=256, block_name="stage4_block2")
 
-    # Output: one probability per clothing class.
+    # ── Global average pooling → 256-D feature vector ────────────────────
+    x = keras.layers.GlobalAveragePooling2D(name="global_avg_pool")(x)
+
+    # ── Classifier head ───────────────────────────────────────────────────
+    x = keras.layers.Dense(units=256, use_bias=False, name="dense_features")(x)
+    x = keras.layers.BatchNormalization(name="dense_bn")(x)
+    x = keras.layers.Activation("relu", name="dense_relu")(x)
+    x = keras.layers.Dropout(rate=0.4, name="dropout_regularisation")(x)
+
     output_probabilities = keras.layers.Dense(
         units=NUMBER_OF_CLOTHING_CLASSES,
         activation="softmax",
         name="clothing_class_probabilities",
-    )(dropout_regularisation)
+    )(x)
 
-    # Assemble the full model.
     clothing_classifier_model = keras.Model(
         inputs=input_layer,
         outputs=output_probabilities,
         name="fashion_mnist_clothing_classifier",
     )
 
-    # Compile with Adam optimiser and sparse labels (labels are integers,
-    # not one-hot vectors) to keep the data loading code simple.
     clothing_classifier_model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),
         loss="sparse_categorical_crossentropy",
@@ -240,7 +297,7 @@ def train_model(
     training_labels: np.ndarray,
     number_of_training_epochs: int,
 ) -> keras.callbacks.History:
-    """Train [clothing_classifier_model] on the Fashion-MNIST training data.
+    """Train [clothing_classifier_model] on the full Fashion-MNIST training set.
 
     Parameters
     ----------
@@ -251,29 +308,27 @@ def train_model(
     training_labels : np.ndarray
         Integer class labels, shape (N,).
     number_of_training_epochs : int
-        How many full passes over the training data to perform.
+        Maximum number of full passes over the training data.
 
     Returns
     -------
     keras.callbacks.History
         Training history (loss and accuracy per epoch).
     """
-    # Reduce the learning rate when validation loss plateaus to squeeze out
-    # extra accuracy in later epochs.
+    # Reduce the learning rate when validation loss plateaus.
     learning_rate_reducer_callback = keras.callbacks.ReduceLROnPlateau(
         monitor="val_loss",
-        factor=0.5,          # Halve the learning rate when triggered.
-        patience=3,          # Wait 3 epochs before reducing.
+        factor=0.5,       # Halve the learning rate when triggered.
+        patience=4,       # Wait 4 epochs before reducing.
         min_lr=1e-6,
         verbose=1,
     )
 
-    # Stop training early if validation loss stops improving to prevent
-    # overfitting and save unnecessary compute time.
+    # Stop training early if validation loss stops improving.
     early_stopping_callback = keras.callbacks.EarlyStopping(
         monitor="val_loss",
-        patience=5,          # Stop after 5 epochs of no improvement.
-        restore_best_weights=True,  # Use the best checkpoint, not the last.
+        patience=8,                  # Stop after 8 epochs of no improvement.
+        restore_best_weights=True,   # Use the best checkpoint, not the last.
         verbose=1,
     )
 
@@ -295,17 +350,12 @@ def train_model(
 def export_model_to_tflite(
     trained_model: keras.Model, tflite_output_path: str
 ) -> None:
-    """Convert [trained_model] to TFLite format and save it to disk.
+    """Convert [trained_model] to TFLite float32 format and save to disk.
 
-    The converter applies default optimisations (float16 quantisation) which
-    reduce file size and improve inference speed on mobile devices while
-    preserving acceptable accuracy.
-
-    For maximum accuracy you can disable optimisations:
-        converter.optimizations = []
-
-    For maximum performance (at the cost of some accuracy) you can apply
-    full integer quantisation – see the TFLite documentation.
+    The model is exported with float32 weights and activations so that the
+    Flutter app can feed it float32 tensors directly without any quantisation
+    mismatch.  Dynamic range quantisation (DEFAULT) is applied to reduce the
+    file size while keeping float32 I/O compatibility.
 
     Parameters
     ----------
@@ -314,26 +364,42 @@ def export_model_to_tflite(
     tflite_output_path : str
         Absolute or relative path where the .tflite file will be written.
     """
-    # Initialise the converter from the Keras model.
     tflite_converter = tf.lite.TFLiteConverter.from_keras_model(trained_model)
 
-    # Apply default size/latency optimisations (recommended for mobile).
+    # Dynamic range quantisation compresses weights to int8 but keeps the
+    # activations (and model I/O) as float32, so the Flutter app feeds
+    # float32 tensors and receives float32 output probabilities unchanged.
     tflite_converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
-    # Run the conversion.
     tflite_model_bytes = tflite_converter.convert()
 
-    # Ensure the output directory exists.
     os.makedirs(os.path.dirname(os.path.abspath(tflite_output_path)), exist_ok=True)
 
-    # Write the binary model file.
     with open(tflite_output_path, "wb") as tflite_output_file:
         tflite_output_file.write(tflite_model_bytes)
 
     tflite_file_size_kb = os.path.getsize(tflite_output_path) / 1024
     print(
-        f"TFLite model saved to: {tflite_output_path} "
+        f"TFLite model saved → {tflite_output_path} "
         f"({tflite_file_size_kb:.1f} KB)"
+    )
+
+    # --- Quick sanity check: run one inference with a blank image ---------
+    interpreter = tf.lite.Interpreter(model_path=tflite_output_path)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    dummy_input = np.zeros(
+        input_details[0]["shape"], dtype=np.float32
+    )
+    interpreter.set_tensor(input_details[0]["index"], dummy_input)
+    interpreter.invoke()
+    test_output = interpreter.get_tensor(output_details[0]["index"])
+
+    print(
+        f"Sanity check passed – output shape: {test_output.shape}, "
+        f"sum of probabilities: {test_output.sum():.4f}"
     )
 
 
@@ -351,7 +417,7 @@ def evaluate_model_accuracy(
     trained_model : keras.Model
         Fully trained Keras model.
     test_images : np.ndarray
-        Held-out test images.
+        Held-out test images (10 000 samples).
     test_labels : np.ndarray
         Corresponding integer class labels.
     """
@@ -367,13 +433,15 @@ def evaluate_model_accuracy(
 def parse_command_line_arguments() -> argparse.Namespace:
     """Parse command-line flags and return the argument namespace."""
     argument_parser = argparse.ArgumentParser(
-        description="Train a Fashion-MNIST CNN and export it as TFLite."
+        description=(
+            "Train a deep residual CNN on Fashion-MNIST and export it as TFLite."
+        )
     )
     argument_parser.add_argument(
         "--epochs",
         type=int,
         default=DEFAULT_TRAINING_EPOCHS,
-        help=f"Number of training epochs (default: {DEFAULT_TRAINING_EPOCHS}).",
+        help=f"Maximum training epochs (default: {DEFAULT_TRAINING_EPOCHS}).",
     )
     argument_parser.add_argument(
         "--output",
@@ -381,20 +449,26 @@ def parse_command_line_arguments() -> argparse.Namespace:
         default=DEFAULT_TFLITE_OUTPUT_PATH,
         help="Output path for the .tflite model file.",
     )
+    argument_parser.add_argument(
+        "--no-augment",
+        action="store_true",
+        default=False,
+        help="Disable data augmentation (faster training, lower accuracy).",
+    )
     return argument_parser.parse_args()
 
 
 def main() -> None:
     """Main training pipeline: load → build → train → evaluate → export."""
-    # Parse CLI arguments.
     parsed_arguments = parse_command_line_arguments()
+    use_augmentation: bool = not parsed_arguments.no_augment
 
-    print("=" * 60)
+    print("=" * 65)
     print("  Fashion-MNIST Clothing Classifier – Training Pipeline")
-    print("=" * 60)
+    print("=" * 65)
 
     # --- Step 1: Load and preprocess dataset ----------------------------
-    print("\n[1/4] Loading Fashion-MNIST dataset…")
+    print("\n[1/4] Loading Fashion-MNIST dataset (all 70 000 samples)…")
     (
         training_images,
         training_labels,
@@ -406,8 +480,13 @@ def main() -> None:
     print(f"      Image shape      : {training_images.shape[1:]}")
 
     # --- Step 2: Build model -------------------------------------------
-    print("\n[2/4] Building model architecture…")
-    clothing_classifier_model = build_clothing_classifier_model()
+    print(
+        f"\n[2/4] Building model architecture "
+        f"(augmentation={'ON' if use_augmentation else 'OFF'})…"
+    )
+    clothing_classifier_model = build_clothing_classifier_model(
+        use_augmentation=use_augmentation
+    )
     clothing_classifier_model.summary()
 
     # --- Step 3: Train -------------------------------------------------
