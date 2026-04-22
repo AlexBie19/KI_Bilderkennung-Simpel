@@ -2,67 +2,87 @@
 """
 train_fashion_mnist.py
 ======================
-Trains a MobileNetV2-based transfer-learning model on the *full* Fashion-MNIST
-dataset (all 70 000 samples, all 10 classes) and exports it as a TensorFlow
-Lite (TFLite) file ready to be bundled inside the Flutter app.
+Trains a MobileNetV2-based transfer-learning model on **two** clothing
+datasets and exports it as a TensorFlow Lite (TFLite) file ready to be
+bundled inside the Flutter app.
 
-Why MobileNetV2?
-----------------
-MobileNetV2 is pre-trained on ImageNet and already understands rich visual
-features (edges, textures, shapes).  By fine-tuning its upper layers on
-Fashion-MNIST we get much better generalisation to real camera photos than
-training a small CNN from scratch.  MobileNetV2 is also specifically designed
-for on-device inference, which makes the exported TFLite model fast and
-memory-efficient.
+Datasets
+--------
+1. Fashion-MNIST (built-in, downloaded automatically)
+   - 70 000 grayscale 28×28 images.
+   - 10 classes: T-shirt/top, Trouser, Pullover, Dress, Coat, Sandal,
+     Shirt, Sneaker, Bag, Ankle boot.
+   - Strength: perfectly balanced (6 000 samples/class), canonical benchmark.
+   - Limitation: no color information.
 
-The architecture is deliberately kept extensible: adding a second head for
-color or pattern recognition later only requires loading the same MobileNetV2
-backbone and connecting a new output branch.
+2. Kaggle Fashion Product Images – Small  (optional, pass --product-dataset-dir)
+   Dataset page: https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-small
+   License: Apache 2.0 (commercial use permitted).
+   - ~44 000 real product photos in full RGB color.
+   - CSV columns used: id, articleType, baseColour.
+   - articleType values are mapped to the same 10 Fashion-MNIST class indices
+     via KAGGLE_ARTICLE_TYPE_TO_CLASS so both datasets share one output head.
+   - Strength: teaches the backbone to recognise clothing in *color* photos,
+     which is much closer to what the Flutter camera app captures at inference
+     time than the greyscale Fashion-MNIST images.
 
-Fashion-MNIST overview
-----------------------
-- 70 000 grayscale images, each 28 × 28 pixels.
-- 10 clothing classes:
-    0  T-shirt/top   5  Sandal
-    1  Trouser        6  Shirt
-    2  Pullover       7  Sneaker
-    3  Dress          8  Bag
-    4  Coat           9  Ankle boot
-- 60 000 training samples / 10 000 test samples.
+   How to obtain the dataset
+   -------------------------
+   Option A – Kaggle CLI (requires a free Kaggle account):
+       pip install kaggle
+       kaggle datasets download -d paramaggarwal/fashion-product-images-small
+       unzip fashion-product-images-small.zip -d fashion-product-images-small
 
-Input pipeline
---------------
-Fashion-MNIST images are 28×28 grayscale.  MobileNetV2 requires at least
-96×96 RGB input.  The preprocessing pipeline therefore:
-  1. Resizes each 28×28 image to MODEL_INPUT_SIZE × MODEL_INPUT_SIZE (128×128).
-  2. Repeats the single grayscale channel three times to form a pseudo-RGB
-     image (R = G = B = grey).
-  3. Normalises pixels from [0, 255] to [-1.0, 1.0] using MobileNetV2's
-     standard preprocess_input function.
+   Option B – direct browser download from
+       https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-small
+   then unzip to a local directory.
 
-The Flutter app's ImagePreprocessingService applies the *same* three steps at
-inference time (resize → RGB → [-1, 1]) so training and inference are aligned.
+   The directory must contain:
+       <dir>/images/      ← one JPEG per product (named <id>.jpg)
+       <dir>/styles.csv   ← CSV with id, articleType, baseColour, …
 
-Improvements over the baseline (86.6 % test accuracy)
-------------------------------------------------------
-1. Larger input (128×128 instead of 96×96) – MobileNetV2 sees more spatial
-   detail, which improves fine-grained feature extraction.
-2. Deeper fine-tuning (top 100 backbone layers instead of 50) – more of the
-   backbone adapts to clothing-specific textures.
-3. Lower Phase-2 learning rate (5e-5 instead of 1e-4) – avoids overshooting
-   the loss surface when fine-tuning deep backbone layers.
-4. More training time (Phase 1 ≤ 20 epochs, Phase 2 ≥ 30 epochs).
-5. Label smoothing (0.1) – prevents the model from becoming overconfident on
-   easy training examples and improves calibration / generalisation.
-6. Wider dense head (512 neurons) – gives the model more representational
-   capacity between the backbone features and the output.
-7. Added RandomTranslation to augmentation – simulates the garment not being
-   perfectly centred in the camera frame.
+   Then pass:
+       python train_fashion_mnist.py --product-dataset-dir <dir>
+
+Why combine both datasets?
+--------------------------
+- Fashion-MNIST alone gives ~87 % accuracy but all images are grayscale; the
+  model never sees color information during training.
+- Kaggle real photos alone are insufficient: the dataset is imbalanced and
+  some categories have too few samples.
+- Together: Fashion-MNIST provides a balanced shape-signal foundation, while
+  the Kaggle photos teach the backbone to extract features from real-world
+  color photographs.  The result is a model that generalises better to the
+  live camera feed in the app.
+
+Memory note
+-----------
+Each preprocessed image occupies 128 × 128 × 3 × 4 bytes ≈ 192 KB.
+• Fashion-MNIST training split (54 000 images):  ~10 GB
+• Kaggle photos (default cap 20 000 images):      ~ 3.7 GB
+• Combined:                                       ~13.7 GB
+A machine with 16 GB RAM is recommended when using both datasets.
+Use --max-product-samples to reduce the Kaggle sample count if memory is tight.
+
+Architecture
+------------
+MobileNetV2 (ImageNet pre-trained, include_top=False)
+  → GlobalAveragePooling2D → BN → Dense(512) → Dropout(0.3)
+  → Dense(256) → Dropout(0.3) → Dense(10, softmax)
+
+Training strategy
+-----------------
+Phase 1 (head only, backbone frozen):  up to PHASE1_MAX_EPOCHS epochs.
+Phase 2 (backbone top-100 unfrozen):   at least 30 epochs with LR=5e-5.
 
 Usage
 -----
+  # Fashion-MNIST only:
   python train_fashion_mnist.py [--epochs N] [--output PATH] [--no-augment]
                                 [--phase2-lr F] [--fine-tune-layers N]
+
+  # Fashion-MNIST + Kaggle color photos:
+  python train_fashion_mnist.py --product-dataset-dir /path/to/fashion-product-images-small
 
 Requirements
 ------------
@@ -73,6 +93,7 @@ import argparse
 import os
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.applications import MobileNetV2
@@ -119,6 +140,93 @@ DEFAULT_PHASE2_LR: float = 5e-5
 # which prevents the model from becoming overconfident on easy training
 # examples and generally improves generalisation and calibration.
 LABEL_SMOOTHING: float = 0.1
+
+# ── Kaggle Fashion Product Images – article-type → class index mapping ────────
+#
+# The Kaggle "Fashion Product Images (Small)" dataset
+# (https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-small)
+# contains a styles.csv with an `articleType` column.  The values below are
+# mapped to the same 10 class indices used by Fashion-MNIST so both datasets
+# share a single classification head.
+#
+# Fashion-MNIST class index reference:
+#   0  T-shirt/top   1  Trouser   2  Pullover   3  Dress    4  Coat
+#   5  Sandal        6  Shirt     7  Sneaker     8  Bag      9  Ankle boot
+#
+# Article types that do not map to any clothing class (e.g. Watches, Perfume,
+# Jewellery) are intentionally omitted and will be filtered out during loading.
+KAGGLE_ARTICLE_TYPE_TO_CLASS: dict[str, int] = {
+    # ── Class 0: T-shirt/top ─────────────────────────────────────────────────
+    "Tshirts":              0,
+    "Tops":                 0,
+    "Tank Tops":            0,
+    "Tunics":               0,
+    "Polo Tshirts":         0,
+    "Innerwear Vests":      0,
+    # ── Class 1: Trouser ─────────────────────────────────────────────────────
+    "Jeans":                1,
+    "Trousers":             1,
+    "Track Pants":          1,
+    "Shorts":               1,
+    "Leggings":             1,
+    "Capris":               1,
+    "Tights":               1,
+    # ── Class 2: Pullover ────────────────────────────────────────────────────
+    "Sweatshirts":          2,
+    "Sweaters":             2,
+    "Hoodie":               2,
+    "Nehru Jackets":        2,  # mandarin-collar knit tops
+    # ── Class 3: Dress ───────────────────────────────────────────────────────
+    "Dresses":              3,
+    "Skirts":               3,
+    "Kurtas":               3,
+    "Sarees":               3,
+    "Nightdress":           3,
+    "Salwar":               3,
+    "Dupatta":              3,
+    # ── Class 4: Coat ────────────────────────────────────────────────────────
+    "Jackets":              4,
+    "Blazers":              4,
+    "Coats":                4,
+    "Windcheater":          4,
+    "Rain Jacket":          4,
+    "Waistcoat":            4,
+    "Bomber Jackets":       4,
+    "Dungarees":            4,
+    # ── Class 5: Sandal ──────────────────────────────────────────────────────
+    "Sandals":              5,
+    "Heels":                5,
+    "Flats":                5,
+    "Flip Flops":           5,
+    "Mules/Clogs":          5,
+    # ── Class 6: Shirt ───────────────────────────────────────────────────────
+    "Shirts":               6,
+    "Casual Shirts":        6,
+    "Formal Shirts":        6,
+    # ── Class 7: Sneaker ─────────────────────────────────────────────────────
+    "Sports Shoes":         7,
+    "Casual Shoes":         7,
+    "Sneakers":             7,
+    "Running Shoes":        7,
+    "Loafers":              7,
+    "Formal Shoes":         7,
+    # ── Class 8: Bag ─────────────────────────────────────────────────────────
+    "Handbags":             8,
+    "Backpacks":            8,
+    "Clutches":             8,
+    "Wallets":              8,
+    "Laptop Bag":           8,
+    "Trolley Bag":          8,
+    "Messenger Bag":        8,
+    "Rucksacks":            8,
+    "Tote Bag":             8,
+    "Sports Bag":           8,
+    "Sling Bag":            8,
+    "Duffle Bag":           8,
+    # ── Class 9: Ankle boot ──────────────────────────────────────────────────
+    "Boots":                9,
+    "Ankle Boots":          9,
+}
 
 # Where to write the finished TFLite model file.
 DEFAULT_TFLITE_OUTPUT_PATH: str = os.path.join(
@@ -203,6 +311,168 @@ def load_and_preprocess_fashion_mnist_dataset() -> (
         training_images, training_labels_onehot,
         test_images, test_labels_onehot,
     )
+
+
+# ── Kaggle Fashion Product Images loader ──────────────────────────────────────
+
+def load_and_preprocess_fashion_product_dataset(
+    dataset_dir: str,
+    max_samples: int | None = None,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Load and preprocess the Kaggle Fashion Product Images (Small) dataset.
+
+    The function reads ``styles.csv``, filters rows whose ``articleType`` is
+    in KAGGLE_ARTICLE_TYPE_TO_CLASS, loads the corresponding JPEG images, and
+    applies the same preprocessing pipeline as Fashion-MNIST (resize → RGB →
+    MobileNetV2 normalisation) so both datasets are compatible.
+
+    Dataset page
+    ------------
+    https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-small
+    License: Apache 2.0 (commercial use permitted).
+
+    Expected directory layout
+    -------------------------
+    <dataset_dir>/
+      images/         ← JPEG files named <id>.jpg
+      styles.csv      ← CSV with columns: id, articleType, baseColour, …
+
+    Parameters
+    ----------
+    dataset_dir : str
+        Path to the extracted Kaggle dataset directory.
+    max_samples : int | None
+        If set, randomly sample at most this many images from the filtered
+        dataset.  Useful to cap memory usage (default: None = use all).
+
+    Returns
+    -------
+    (images, labels_onehot) : tuple[np.ndarray, np.ndarray]
+        images        : float32 array of shape (N, 128, 128, 3), MobileNetV2
+                        normalised, full RGB color.
+        labels_onehot : float32 array of shape (N, 10), one-hot encoded using
+                        the same class ordering as Fashion-MNIST.
+    None
+        Returned when ``dataset_dir`` does not contain the expected files.
+    """
+    csv_path = os.path.join(dataset_dir, "styles.csv")
+    images_dir = os.path.join(dataset_dir, "images")
+
+    if not os.path.isfile(csv_path):
+        print(f"      [WARNING] styles.csv not found in {dataset_dir!r}. "
+              "Skipping Kaggle dataset.")
+        return None
+    if not os.path.isdir(images_dir):
+        print(f"      [WARNING] images/ directory not found in {dataset_dir!r}. "
+              "Skipping Kaggle dataset.")
+        return None
+
+    # ── Read and filter the CSV ───────────────────────────────────────────
+    # Some rows have malformed trailing data; on_bad_lines='skip' (pandas ≥ 2.0)
+    # silently drops those rows instead of raising an error.
+    df = pd.read_csv(csv_path, on_bad_lines="skip")
+
+    # Keep only rows whose articleType maps to one of our 10 classes.
+    df = df[df["articleType"].isin(KAGGLE_ARTICLE_TYPE_TO_CLASS)].copy()
+    df["class_index"] = df["articleType"].map(KAGGLE_ARTICLE_TYPE_TO_CLASS)
+
+    # Optionally cap the number of samples (random shuffle before cap so each
+    # run picks a different subset if the user reruns training).
+    if max_samples is not None and len(df) > max_samples:
+        df = df.sample(n=max_samples, random_state=42)
+
+    print(f"      Found {len(df):,} usable rows after filtering "
+          f"(max_samples={max_samples}).")
+    if len(df) == 0:
+        print("      [WARNING] No usable rows found. Skipping Kaggle dataset.")
+        return None
+
+    # ── Load images ───────────────────────────────────────────────────────
+    loaded_images: list[np.ndarray] = []
+    loaded_labels: list[int] = []
+    skipped = 0
+
+    for i, (_, row) in enumerate(df.iterrows()):
+        image_path = os.path.join(images_dir, f"{int(row['id'])}.jpg")
+
+        if not os.path.isfile(image_path):
+            skipped += 1
+            continue
+
+        try:
+            raw_bytes = tf.io.read_file(image_path)
+            # decode_jpeg handles JPEG; channels=3 forces RGB (no alpha).
+            image_tensor = tf.image.decode_jpeg(raw_bytes, channels=3)
+            # Resize to the same spatial resolution as Fashion-MNIST images.
+            image_tensor = tf.image.resize(
+                image_tensor,
+                [MODEL_INPUT_SIZE, MODEL_INPUT_SIZE],
+                method=tf.image.ResizeMethod.BILINEAR,
+            )
+            # Apply MobileNetV2 normalisation ([0, 255] → [-1, 1]).
+            image_np = preprocess_input(image_tensor.numpy().astype("float32"))
+            loaded_images.append(image_np)
+            loaded_labels.append(int(row["class_index"]))
+        except Exception as exc:  # corrupted JPEG, permission error, etc.
+            skipped += 1
+            if skipped <= 5:  # avoid flooding the console
+                print(f"      [WARNING] Could not load {image_path}: {exc}")
+            continue
+
+        # Progress update every 2 000 images.
+        if (i + 1) % 2000 == 0:
+            print(f"      Loaded {i + 1:,} / {len(df):,} images "
+                  f"({skipped} skipped)…")
+
+    print(f"      Finished loading: {len(loaded_images):,} images, "
+          f"{skipped} skipped.")
+
+    if len(loaded_images) == 0:
+        print("      [WARNING] All images failed to load. "
+              "Skipping Kaggle dataset.")
+        return None
+
+    images_array = np.stack(loaded_images, axis=0)  # (N, 128, 128, 3)
+    labels_onehot = keras.utils.to_categorical(
+        np.array(loaded_labels, dtype=np.int32),
+        num_classes=NUMBER_OF_CLOTHING_CLASSES,
+    )  # (N, 10)
+
+    return images_array, labels_onehot
+
+
+# ── Dataset combination ───────────────────────────────────────────────────────
+
+def combine_datasets(
+    images_a: np.ndarray,
+    labels_a: np.ndarray,
+    images_b: np.ndarray,
+    labels_b: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Concatenate two preprocessed datasets and shuffle them uniformly.
+
+    Both datasets must already be preprocessed to the same spatial size and
+    normalisation (i.e. output of load_and_preprocess_fashion_mnist_dataset
+    and load_and_preprocess_fashion_product_dataset).
+
+    Parameters
+    ----------
+    images_a, labels_a : np.ndarray  First dataset (e.g. Fashion-MNIST train).
+    images_b, labels_b : np.ndarray  Second dataset (e.g. Kaggle train).
+
+    Returns
+    -------
+    (combined_images, combined_labels) : tuple[np.ndarray, np.ndarray]
+        Shuffled concatenation with shape
+        (N_a + N_b, 128, 128, 3) and (N_a + N_b, 10).
+    """
+    combined_images = np.concatenate([images_a, images_b], axis=0)
+    combined_labels = np.concatenate([labels_a, labels_b], axis=0)
+
+    # Fixed seed so the shuffle is reproducible across runs.
+    rng = np.random.default_rng(seed=42)
+    indices = rng.permutation(len(combined_images))
+    return combined_images[indices], combined_labels[indices]
 
 
 # ── Data augmentation ─────────────────────────────────────────────────────────
@@ -400,10 +670,11 @@ def train_model_phase2(
     training_labels_onehot: np.ndarray,
     number_of_epochs: int,
     phase2_lr: float = DEFAULT_PHASE2_LR,
+    fine_tune_layers: int = FINE_TUNE_LAYER_COUNT,
 ) -> None:
     """Phase 2: unfreeze the top layers of MobileNetV2 and fine-tune.
 
-    The top FINE_TUNE_LAYER_COUNT layers are unfrozen; lower layers remain
+    The top fine_tune_layers layers are unfrozen; lower layers remain
     frozen so their low-level ImageNet features are preserved.  A very small
     learning rate (default 5e-5, 200× smaller than Phase-1) prevents large
     gradient updates from destroying the pre-trained weights.
@@ -416,17 +687,18 @@ def train_model_phase2(
     training_labels_onehot  : np.ndarray    Same one-hot labels as phase 1.
     number_of_epochs        : int           Upper bound on total epochs (both phases).
     phase2_lr               : float         Learning rate for fine-tuning (default 5e-5).
+    fine_tune_layers        : int           Number of top backbone layers to unfreeze.
     """
     # Unfreeze everything, then re-freeze the lower layers.
     mobilenet_backbone.trainable = True
     total_layers = len(mobilenet_backbone.layers)
-    freeze_until = total_layers - FINE_TUNE_LAYER_COUNT
+    freeze_until = total_layers - fine_tune_layers
     for layer in mobilenet_backbone.layers[:freeze_until]:
         layer.trainable = False
 
     frozen_count = sum(1 for l in mobilenet_backbone.layers if not l.trainable)
     print(
-        f"\n  Phase 2 – fine-tuning top {FINE_TUNE_LAYER_COUNT} of "
+        f"\n  Phase 2 – fine-tuning top {fine_tune_layers} of "
         f"{total_layers} backbone layers "
         f"({frozen_count} layers still frozen)…"
     )
@@ -568,6 +840,32 @@ def parse_command_line_arguments() -> argparse.Namespace:
             "Higher values allow deeper adaptation but require more memory."
         ),
     )
+    parser.add_argument(
+        "--product-dataset-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Path to the extracted Kaggle Fashion Product Images (Small) "
+            "dataset directory.  The directory must contain images/ and "
+            "styles.csv.  When provided, the Kaggle photos are combined with "
+            "Fashion-MNIST for training, giving the model exposure to real "
+            "color photographs.  Dataset: "
+            "https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-small"
+        ),
+    )
+    parser.add_argument(
+        "--max-product-samples",
+        type=int,
+        default=20_000,
+        metavar="N",
+        help=(
+            "Maximum number of Kaggle Fashion Product images to load "
+            "(default: 20 000).  Reduce this value if you run out of RAM. "
+            "Each image takes ~192 KB as a float32 tensor; 20 000 images "
+            "≈ 3.7 GB.  Ignored when --product-dataset-dir is not set."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -575,33 +873,61 @@ def main() -> None:
     """Main pipeline: load → build → phase-1 train → phase-2 fine-tune → evaluate → export."""
     args = parse_command_line_arguments()
     use_augmentation: bool = not args.no_augment
-
-    # Allow the FINE_TUNE_LAYER_COUNT constant to be overridden per run.
-    global FINE_TUNE_LAYER_COUNT
-    FINE_TUNE_LAYER_COUNT = args.fine_tune_layers
+    fine_tune_layers: int = args.fine_tune_layers
 
     print("=" * 65)
-    print("  Fashion-MNIST Clothing Classifier – MobileNetV2 Pipeline")
+    print("  Clothing Classifier – MobileNetV2 Dual-Dataset Pipeline")
     print("=" * 65)
     print(f"  Input size       : {MODEL_INPUT_SIZE}×{MODEL_INPUT_SIZE}×{MODEL_INPUT_CHANNELS}")
     print(f"  Augmentation     : {'ON' if use_augmentation else 'OFF'}")
     print(f"  Max epochs       : {args.epochs} (phase 1 ≤{PHASE1_MAX_EPOCHS}, phase 2 ≥30)")
-    print(f"  Fine-tune layers : {FINE_TUNE_LAYER_COUNT}")
+    print(f"  Fine-tune layers : {fine_tune_layers}")
     print(f"  Phase-2 LR       : {args.phase2_lr}")
     print(f"  Label smoothing  : {LABEL_SMOOTHING}")
+    if args.product_dataset_dir:
+        print(f"  Kaggle dataset   : {args.product_dataset_dir}")
+        print(f"  Max product imgs : {args.max_product_samples:,}")
+    else:
+        print("  Kaggle dataset   : not used (pass --product-dataset-dir to enable)")
 
-    # --- Step 1: Load dataset ------------------------------------------
-    print("\n[1/4] Loading & preprocessing Fashion-MNIST (all 70 000 samples)…")
-    training_images, training_labels_onehot, test_images, test_labels_onehot = (
+    # ── Step 1: Load Fashion-MNIST ─────────────────────────────────────────
+    print("\n[1/5] Loading & preprocessing Fashion-MNIST (all 70 000 samples)…")
+    fm_train_images, fm_train_labels, test_images, test_labels_onehot = (
         load_and_preprocess_fashion_mnist_dataset()
     )
-    print(f"      Training samples : {len(training_images)}")
-    print(f"      Test samples     : {len(test_images)}")
-    print(f"      Image shape      : {training_images.shape[1:]}")
+    print(f"      Fashion-MNIST training : {len(fm_train_images):,} samples")
+    print(f"      Fashion-MNIST test     : {len(test_images):,} samples")
 
-    # --- Step 2: Build model ------------------------------------------
+    # ── Step 2: Optionally load Kaggle color photos ────────────────────────
+    training_images = fm_train_images
+    training_labels_onehot = fm_train_labels
+
+    if args.product_dataset_dir is not None:
+        print(
+            f"\n[2/5] Loading Kaggle Fashion Product Images "
+            f"(max {args.max_product_samples:,} samples)…"
+        )
+        kaggle_result = load_and_preprocess_fashion_product_dataset(
+            dataset_dir=args.product_dataset_dir,
+            max_samples=args.max_product_samples,
+        )
+        if kaggle_result is not None:
+            kaggle_images, kaggle_labels = kaggle_result
+            print(f"      Kaggle samples loaded  : {len(kaggle_images):,}")
+            print("\n      Combining Fashion-MNIST + Kaggle datasets…")
+            training_images, training_labels_onehot = combine_datasets(
+                fm_train_images, fm_train_labels,
+                kaggle_images, kaggle_labels,
+            )
+            print(f"      Combined training set  : {len(training_images):,} samples")
+        else:
+            print("      Kaggle dataset skipped – training on Fashion-MNIST only.")
+    else:
+        print("\n[2/5] Skipping Kaggle dataset (--product-dataset-dir not set).")
+
+    # ── Step 3: Build model ────────────────────────────────────────────────
     print(
-        f"\n[2/4] Building MobileNetV2 classifier "
+        f"\n[3/5] Building MobileNetV2 classifier "
         f"(augmentation={'ON' if use_augmentation else 'OFF'})…"
     )
     model, mobilenet_backbone = build_clothing_classifier_model(
@@ -612,8 +938,9 @@ def main() -> None:
     total = sum(tf.size(v).numpy() for v in model.variables)
     print(f"      Trainable params : {trainable:,} / {total:,}")
 
-    # --- Step 3: Two-phase training ------------------------------------
-    print(f"\n[3/4] Training (two phases, up to {args.epochs} epochs total)…")
+    # ── Step 4: Two-phase training ─────────────────────────────────────────
+    print(f"\n[4/5] Training (two phases, up to {args.epochs} epochs total)…")
+    print(f"      Total training samples : {len(training_images):,}")
     train_model_phase1(model, training_images, training_labels_onehot, args.epochs)
     train_model_phase2(
         model,
@@ -622,10 +949,11 @@ def main() -> None:
         training_labels_onehot,
         args.epochs,
         phase2_lr=args.phase2_lr,
+        fine_tune_layers=fine_tune_layers,
     )
 
-    # --- Step 4: Evaluate & export ------------------------------------
-    print("\n[4/4] Evaluating on test set…")
+    # ── Step 5: Evaluate & export ──────────────────────────────────────────
+    print("\n[5/5] Evaluating on Fashion-MNIST test set…")
     evaluate_model_accuracy(model, test_images, test_labels_onehot)
 
     print("\nExporting to TFLite…")

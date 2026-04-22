@@ -10,7 +10,7 @@
 /// same photo without changing the classifier model.
 library;
 
-import 'services/color_analysis_service.dart';
+import '../services/color_analysis_service.dart';
 
 /// A single class prediction: label, confidence score and class index.
 class ClothingPrediction {
