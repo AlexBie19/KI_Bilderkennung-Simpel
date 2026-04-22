@@ -1,4 +1,4 @@
-# Python dependencies for training the Fashion-MNIST clothing classifier.
+# Python dependencies for training the clothing classifier.
 # Install with:  pip install -r requirements.txt
 
 # Deep learning framework and TFLite converter.
@@ -8,3 +8,7 @@ tensorflow>=2.15.0,<3.0.0
 
 # Numerical arrays (used for image data manipulation).
 numpy>=1.24.0,<2.0.0
+
+# DataFrame library used to read the Kaggle Fashion Product Images styles.csv.
+# Required when --product-dataset-dir is passed; not needed for Fashion-MNIST only.
+pandas>=2.0.0,<3.0.0

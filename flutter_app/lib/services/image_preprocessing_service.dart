@@ -3,13 +3,13 @@
 ///
 /// Model input specification
 /// -------------------------
-/// • Size      : [modelInputSize] × [modelInputSize] pixels (96 × 96)
+/// • Size      : [modelInputSize] × [modelInputSize] pixels (128 × 128)
 /// • Channels  : 3 (RGB)
 /// • Range     : −1.0 … +1.0  (MobileNetV2 standard: pixel / 127.5 − 1.0)
 ///
 /// The Python training script applies the identical three-step pipeline to
 /// each Fashion-MNIST image:
-///   1. Resize 28×28 → 96×96 (bilinear)
+///   1. Resize 28×28 → 128×128 (bilinear)
 ///   2. Repeat grayscale channel 3× → pseudo-RGB
 ///   3. Normalise: (pixel / 127.5) − 1.0
 ///
@@ -35,7 +35,7 @@ class ImagePreprocessingService {
 
   /// Width and height of the model's square input in pixels.
   /// Must match [MODEL_INPUT_SIZE] in train_fashion_mnist.py.
-  static const int modelInputSize = 96;
+  static const int modelInputSize = 128;
 
   /// Number of color channels expected by the model (RGB = 3).
   static const int modelInputChannels = 3;
@@ -47,8 +47,8 @@ class ImagePreprocessingService {
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Loads [imageFile], resizes it to 96×96, and produces a flat
-  /// [Float32List] of 27 648 values (96 × 96 × 3) normalized to [−1.0, 1.0].
+  /// Loads [imageFile], resizes it to 128×128, and produces a flat
+  /// [Float32List] of 49 152 values (128 × 128 × 3) normalized to [−1.0, 1.0].
   ///
   /// Preprocessing pipeline (identical to the Python training script):
   ///   1. Decode image from disk.
