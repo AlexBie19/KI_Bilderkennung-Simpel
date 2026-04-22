@@ -1,13 +1,15 @@
 /// Reusable widget that displays the full [ClassificationResult].
 ///
-/// Shows the best-match label prominently at the top followed by a ranked
-/// list of up to three predictions, each with a labelled confidence bar.
+/// Shows the best-match clothing label prominently at the top, followed by a
+/// color swatch + name row (when color information is available), and then a
+/// ranked list of up to three predictions, each with a labelled confidence bar.
 /// Designed as a stateless widget so it can be embedded without side-effects.
 library;
 
 import 'package:flutter/material.dart';
 
 import '../models/classification_result.dart';
+import '../services/color_analysis_service.dart';
 
 /// A card-style widget that presents clothing classification results.
 class ClassificationResultWidget extends StatelessWidget {
@@ -48,6 +50,12 @@ class ClassificationResultWidget extends StatelessWidget {
               ),
             ),
 
+            // ── Detected color (shown only when available) ───────────────
+            if (classificationResult.detectedColor != null) ...[
+              const SizedBox(height: 16),
+              _ColorRow(detectedColor: classificationResult.detectedColor!),
+            ],
+
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 12),
@@ -72,6 +80,71 @@ class ClassificationResultWidget extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Row that shows a color swatch circle and the detected color name.
+class _ColorRow extends StatelessWidget {
+  const _ColorRow({required this.detectedColor});
+
+  final DetectedColor detectedColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    final Color swatchColor = Color.fromRGBO(
+      detectedColor.red,
+      detectedColor.green,
+      detectedColor.blue,
+      1.0,
+    );
+
+    return Row(
+      children: [
+        // Color swatch circle with a subtle border so white/light colors
+        // are visible against the card background.
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: swatchColor,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: colors.outlineVariant,
+              width: 1.5,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Erkannte Farbe',
+              style: text.labelSmall?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            Text(
+              detectedColor.name,
+              style: text.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const Spacer(),
+        Text(
+          detectedColor.formattedConfidence,
+          style: text.bodySmall?.copyWith(
+            color: colors.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

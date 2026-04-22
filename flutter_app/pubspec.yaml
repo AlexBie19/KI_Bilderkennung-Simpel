@@ -1,13 +1,14 @@
 # Flutter project configuration for the KI Kleidungserkennung app.
-# The app uses the device camera to photograph a clothing item and classifies
-# it with a MobileNetV2 TFLite model fine-tuned on the Fashion-MNIST dataset.
-# Input pipeline: center-crop → 96×96 RGB → normalise to [−1, 1].
+# The app uses the device camera to photograph a clothing item, classifies
+# it with a MobileNetV2 TFLite model fine-tuned on the Fashion-MNIST dataset,
+# and detects the dominant color using an HSV color analysis algorithm.
+# Input pipeline: center-crop → 128×128 RGB → normalise to [−1, 1].
 
 name: clothing_recognizer
 description: >
-  Eine Flutter-App, die ein Foto aufnimmt, es auf 96×96 RGB vorverarbeitet
-  und das Kleidungsstück mit einem MobileNetV2-Modell klassifiziert.
-  Erweiterbar für Farb- und Mustererkennung.
+  Eine Flutter-App, die ein Foto aufnimmt, es auf 128×128 RGB vorverarbeitet,
+  das Kleidungsstück mit einem MobileNetV2-Modell klassifiziert und die
+  dominante Farbe per HSV-Algorithmus erkennt.
 
 # Semantic versioning: major.minor.patch+build
 version: 1.0.0+1
