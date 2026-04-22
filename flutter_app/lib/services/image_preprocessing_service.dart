@@ -87,16 +87,16 @@ class ImagePreprocessingService {
     );
 
     // --- Step 4: Build float32 tensor with MobileNetV2 normalisation -----
-    // For each pixel: R, G, B in [0, 255] → (value / 127.5) − 1.0 ∈ [−1, 1].
+    // For each pixel: channel value in [0, 255] → (value / 127.5) − 1.0 ∈ [−1, 1].
     final Float32List tensor = Float32List(inputTensorLength);
     int index = 0;
 
     for (int row = 0; row < modelInputSize; row++) {
       for (int col = 0; col < modelInputSize; col++) {
         final img.Pixel pixel = resizedImage.getPixel(col, row);
-        tensor[index++] = pixel.r / 127.5 - 1.0; // R channel
-        tensor[index++] = pixel.g / 127.5 - 1.0; // G channel
-        tensor[index++] = pixel.b / 127.5 - 1.0; // B channel
+        for (final num channel in [pixel.r, pixel.g, pixel.b]) {
+          tensor[index++] = channel / 127.5 - 1.0;
+        }
       }
     }
 

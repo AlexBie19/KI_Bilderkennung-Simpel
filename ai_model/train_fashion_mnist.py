@@ -81,6 +81,10 @@ DEFAULT_TRAINING_EPOCHS: int = 30       # Maximum epochs (EarlyStopping kicks in
 DEFAULT_BATCH_SIZE: int = 64
 DEFAULT_VALIDATION_SPLIT: float = 0.1  # 10 % of training data for validation
 
+# Maximum number of epochs for phase 1 (head-only training).
+# The remainder of DEFAULT_TRAINING_EPOCHS is used for phase 2 fine-tuning.
+PHASE1_MAX_EPOCHS: int = 15
+
 # Fine-tuning: unfreeze this many layers from the *top* of the MobileNetV2
 # backbone during phase 2.  More layers = higher accuracy but longer training.
 FINE_TUNE_LAYER_COUNT: int = 50
@@ -140,9 +144,12 @@ def load_and_preprocess_fashion_mnist_dataset() -> (
         # Repeat grayscale channel: (N, H, W, 1) → (N, H, W, 3)
         images = np.repeat(images, MODEL_INPUT_CHANNELS, axis=-1)
 
-        # Apply MobileNetV2 standard preprocessing: [0, 255] → [-1.0, 1.0].
-        # The images are currently in [0.0, 255.0] after the repeat (resize
-        # keeps uint8 range), so preprocess_input works directly.
+        # Apply MobileNetV2 standard preprocessing.
+        # preprocess_input expects float values in [0, 255] and maps them
+        # to [-1.0, 1.0] via:  x / 127.5 - 1.0
+        # The values are in [0.0, 255.0] at this point because astype("float32")
+        # preserves the original uint8 range – tf.image.resize only resamples
+        # spatially and does not rescale pixel values.
         images = preprocess_input(images)
         return images
 
@@ -166,7 +173,7 @@ def build_augmentation_pipeline() -> keras.Sequential:
     return keras.Sequential(
         [
             keras.layers.RandomFlip("horizontal"),
-            keras.layers.RandomRotation(factor=0.06),   # ±~22 °
+            keras.layers.RandomRotation(factor=0.06),   # ±21.6°
             keras.layers.RandomZoom(height_factor=0.10, width_factor=0.10),
             keras.layers.RandomBrightness(factor=0.10),
             keras.layers.RandomContrast(factor=0.10),
@@ -310,8 +317,8 @@ def train_model_phase1(
     training_labels  : np.ndarray    Integer class labels, shape (N,).
     number_of_epochs : int           Upper bound on training epochs.
     """
-    # Limit phase 1 to at most 15 epochs (EarlyStopping will cut it shorter).
-    phase1_epochs = min(number_of_epochs, 15)
+    # Limit phase 1 to at most PHASE1_MAX_EPOCHS (EarlyStopping will cut it shorter).
+    phase1_epochs = min(number_of_epochs, PHASE1_MAX_EPOCHS)
 
     print(f"\n  Phase 1 – training head only (up to {phase1_epochs} epochs)…")
     model.fit(
@@ -369,7 +376,7 @@ def train_model_phase2(
     )
 
     # Remaining epochs for fine-tuning.
-    remaining_epochs = max(number_of_epochs - 15, 10)
+    remaining_epochs = max(number_of_epochs - PHASE1_MAX_EPOCHS, 10)
     model.fit(
         training_images,
         training_labels,
