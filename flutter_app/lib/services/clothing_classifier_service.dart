@@ -11,6 +11,7 @@
 /// service (e.g. `ColorPatternClassifierService`) that loads a different
 /// TFLite model and returns an extended result type.  Both services can
 /// be composed in the screen layer without modifying this file.
+library;
 
 import 'dart:typed_data';
 

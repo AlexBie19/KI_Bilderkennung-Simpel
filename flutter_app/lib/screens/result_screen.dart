@@ -3,6 +3,7 @@
 ///
 /// The screen handles its own async loading state so the user always sees
 /// either a spinner, an error message, or the final result.
+library;
 
 import 'dart:io';
 import 'dart:typed_data';

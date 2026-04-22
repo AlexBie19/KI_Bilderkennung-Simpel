@@ -12,6 +12,7 @@
 /// Extension note: to support color/pattern recognition in the future,
 /// add a new method `preprocessForColorModel` that keeps all three RGB
 /// channels and resizes to the target model's resolution.
+library;
 
 import 'dart:io';
 import 'dart:typed_data';

@@ -8,6 +8,7 @@
 ///
 /// Lifecycle:
 ///   [CameraController] is created in [initState] and disposed in [dispose].
+library;
 
 import 'dart:io';
 

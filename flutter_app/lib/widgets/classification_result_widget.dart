@@ -3,6 +3,7 @@
 /// Shows the detected clothing label, a confidence percentage bar, and
 /// the raw confidence value.  Designed as a stateless widget so it can
 /// be embedded in any screen without side-effects.
+library;
 
 import 'package:flutter/material.dart';
 
@@ -65,8 +66,7 @@ class ClassificationResultWidget extends StatelessWidget {
                 value: classificationResult.confidenceScore,
                 minHeight: 12,
                 backgroundColor: colorScheme.surfaceContainerHighest,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
               ),
             ),
             const SizedBox(height: 4),

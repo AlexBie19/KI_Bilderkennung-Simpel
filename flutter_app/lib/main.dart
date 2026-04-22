@@ -2,6 +2,7 @@
 ///
 /// Initialises the camera list before the widget tree is built, then
 /// launches [ClothingRecognizerApp].
+library;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';

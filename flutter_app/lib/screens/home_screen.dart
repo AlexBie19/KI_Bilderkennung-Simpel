@@ -2,6 +2,7 @@
 ///
 /// Provides a short description of the app's purpose and an entry-point
 /// button that navigates to [CameraScreen] to capture a clothing photo.
+library;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';

@@ -2,6 +2,7 @@
 ///
 /// Designed to be extensible: future versions can add [detectedColor] and
 /// [detectedPattern] fields without breaking existing code.
+library;
 
 // ignore_for_file: public_member_api_docs
 
@@ -38,8 +39,7 @@ class ClassificationResult {
       '${(confidenceScore * 100).toStringAsFixed(1)} %';
 
   @override
-  String toString() =>
-      'ClassificationResult('
+  String toString() => 'ClassificationResult('
       'clothingLabel: $clothingLabel, '
       'confidenceScore: $confidenceScore, '
       'classIndex: $classIndex'
