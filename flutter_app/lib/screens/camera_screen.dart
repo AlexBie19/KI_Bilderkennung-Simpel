@@ -111,9 +111,10 @@ class _CameraScreenState extends State<CameraScreen>
   void _initialiseCamera(CameraDescription selectedCamera) {
     final CameraController newCameraController = CameraController(
       selectedCamera,
-      // ResolutionPreset.medium gives a good balance between quality and
-      // processing speed for the subsequent 28×28 downscale.
-      ResolutionPreset.medium,
+      // ResolutionPreset.high gives a sharp live preview.
+      // The 96×96 downscale for MobileNetV2 happens in ImagePreprocessingService
+      // *after* capture, so the user always sees a crisp full-resolution view.
+      ResolutionPreset.high,
       enableAudio: false, // Audio is not needed for image classification.
     );
 
@@ -154,7 +155,7 @@ class _CameraScreenState extends State<CameraScreen>
     } catch (captureError) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to capture photo: $captureError')),
+          SnackBar(content: Text('Foto konnte nicht aufgenommen werden: $captureError')),
         );
       }
     } finally {
@@ -171,7 +172,7 @@ class _CameraScreenState extends State<CameraScreen>
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('Take a photo'),
+        title: const Text('Foto aufnehmen'),
       ),
       body: _buildCameraBody(),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
@@ -223,7 +224,7 @@ class _CameraScreenState extends State<CameraScreen>
       onPressed: _isCapturingPhoto ? null : _capturePhoto,
       backgroundColor: Colors.white,
       foregroundColor: Colors.black,
-      tooltip: 'Capture photo',
+      tooltip: 'Foto aufnehmen',
       child: _isCapturingPhoto
           ? const CircularProgressIndicator(color: Colors.black)
           : const Icon(Icons.camera, size: 40),

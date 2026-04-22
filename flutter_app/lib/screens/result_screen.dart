@@ -55,10 +55,9 @@ class _ResultScreenState extends State<ResultScreen> {
       classifierService = await ClothingClassifierService.load();
 
       // --- Step 2: Preprocess the captured image -------------------------
-      // Converts the photo to a 28×28 grayscale float tensor matching the
-      // Fashion-MNIST input format.
+      // Resizes to 96×96 RGB, normalises to [−1, 1] (MobileNetV2 format).
       final Float32List preprocessedInputTensor =
-          ImagePreprocessingService.preprocessImageForFashionMnist(
+          ImagePreprocessingService.preprocessImageForMobileNetV2(
         widget.capturedImageFile,
       );
 
@@ -75,7 +74,7 @@ class _ResultScreenState extends State<ResultScreen> {
     } catch (classificationError) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Classification failed:\n$classificationError';
+          _errorMessage = 'Klassifizierung fehlgeschlagen:\n$classificationError';
           _isLoading = false;
         });
       }
@@ -91,7 +90,7 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Classification Result'),
+        title: const Text('Ergebnis'),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -119,7 +118,7 @@ class _ResultScreenState extends State<ResultScreen> {
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.camera_alt_outlined),
-              label: const Text('Take another photo'),
+              label: const Text('Weiteres Foto aufnehmen'),
             ),
           ],
         ),
@@ -136,7 +135,7 @@ class _ResultScreenState extends State<ResultScreen> {
           CircularProgressIndicator(),
           SizedBox(height: 16),
           Text(
-            'Analysing clothing item…',
+            'Kleidungsstück wird analysiert…',
             textAlign: TextAlign.center,
           ),
         ],
