@@ -1,47 +1,61 @@
-/// Data model that holds the result of a single clothing classification.
+/// Data models for clothing classification results.
+///
+/// [ClassificationResult] holds the full list of top-k predictions returned
+/// by [ClothingClassifierService].  The first element in [topPredictions] is
+/// always the highest-confidence class.
 ///
 /// Designed to be extensible: future versions can add [detectedColor] and
-/// [detectedPattern] fields without breaking existing code.
+/// [detectedPattern] fields to [ClassificationResult] without breaking any
+/// existing code that reads [topPrediction].
 library;
 
-// ignore_for_file: public_member_api_docs
+/// A single class prediction: label, confidence score and class index.
+class ClothingPrediction {
+  /// Human-readable label (e.g. "T-shirt/top").
+  final String label;
 
-/// Represents one classification result returned by [ClothingClassifierService].
-class ClassificationResult {
-  /// The human-readable clothing label (e.g. "T-shirt/top").
-  final String clothingLabel;
+  /// Softmax probability in [0.0, 1.0].
+  final double confidence;
 
-  /// Confidence score in the range [0.0, 1.0].
-  final double confidenceScore;
-
-  /// Index into the label list that corresponds to [clothingLabel].
+  /// Index into the Fashion-MNIST label list (0–9).
   final int classIndex;
 
-  // ── Future extension fields (currently unused) ─────────────────────────────
-  // final String? detectedColor;   // e.g. "Red", "Blue"
-  // final String? detectedPattern; // e.g. "Striped", "Checkered"
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /// Creates a [ClassificationResult].
-  ///
-  /// All parameters are required; there are no nullable fields at this stage
-  /// so callers always receive a complete result object.
-  const ClassificationResult({
-    required this.clothingLabel,
-    required this.confidenceScore,
+  const ClothingPrediction({
+    required this.label,
+    required this.confidence,
     required this.classIndex,
   });
 
-  /// Returns a formatted percentage string for display purposes.
-  ///
-  /// Example: `confidenceScore = 0.942` → `"94.2 %"`
+  /// Returns a formatted percentage string, e.g. "94.2 %".
   String get formattedConfidence =>
-      '${(confidenceScore * 100).toStringAsFixed(1)} %';
+      '${(confidence * 100).toStringAsFixed(1)} %';
 
   @override
-  String toString() => 'ClassificationResult('
-      'clothingLabel: $clothingLabel, '
-      'confidenceScore: $confidenceScore, '
-      'classIndex: $classIndex'
-      ')';
+  String toString() =>
+      'ClothingPrediction(label: $label, confidence: $confidence, '
+      'classIndex: $classIndex)';
+}
+
+/// The result of one classification run, containing the top-k predictions
+/// sorted by confidence (highest first).
+class ClassificationResult {
+  /// Ordered list of predictions (index 0 = best match).
+  final List<ClothingPrediction> topPredictions;
+
+  const ClassificationResult({required this.topPredictions});
+
+  /// The highest-confidence prediction.  Throws if [topPredictions] is empty.
+  ClothingPrediction get topPrediction => topPredictions.first;
+
+  /// Convenience alias for the best label.
+  String get clothingLabel => topPrediction.label;
+
+  /// Convenience alias for the best confidence score.
+  double get confidenceScore => topPrediction.confidence;
+
+  /// Convenience alias for the best class index.
+  int get classIndex => topPrediction.classIndex;
+
+  @override
+  String toString() => 'ClassificationResult(top: $topPrediction)';
 }

@@ -1,13 +1,13 @@
-# Flutter project configuration for the Clothing Recognizer app.
-# This app uses the camera to take a picture and classifies clothing
-# using a TensorFlow Lite model trained on the Fashion-MNIST dataset.
+# Flutter project configuration for the KI Kleidungserkennung app.
+# The app uses the device camera to photograph a clothing item and classifies
+# it with a MobileNetV2 TFLite model fine-tuned on the Fashion-MNIST dataset.
+# Input pipeline: center-crop → 96×96 RGB → normalise to [−1, 1].
 
 name: clothing_recognizer
 description: >
-  A Flutter app that captures a photo, preprocesses it to match the
-  Fashion-MNIST format (28×28 grayscale), and classifies the clothing
-  item using a TFLite model. Designed to be extended later with color
-  and pattern recognition.
+  Eine Flutter-App, die ein Foto aufnimmt, es auf 96×96 RGB vorverarbeitet
+  und das Kleidungsstück mit einem MobileNetV2-Modell klassifiziert.
+  Erweiterbar für Farb- und Mustererkennung.
 
 # Semantic versioning: major.minor.patch+build
 version: 1.0.0+1

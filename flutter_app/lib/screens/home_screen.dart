@@ -49,9 +49,10 @@ class HomeScreen extends StatelessWidget {
 
               // ── Description ─────────────────────────────────────────
               Text(
-                'Take a photo of a clothing item and the app will '
-                'identify its type (T-shirt, Hoodie, Jeans, …) using '
-                'a neural network trained on the Fashion-MNIST dataset.',
+                'Fotografiere ein Kleidungsstück und die KI erkennt '
+                'dessen Typ (T-Shirt, Hose, Kleid, …) mit einem '
+                'MobileNetV2-Modell, das auf dem Fashion-MNIST-Datensatz '
+                'trainiert wurde.',
                 style: Theme.of(context).textTheme.bodyMedium,
                 textAlign: TextAlign.center,
               ),
@@ -61,7 +62,7 @@ class HomeScreen extends StatelessWidget {
               FilledButton.icon(
                 onPressed: () => _openCameraScreen(context),
                 icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('Take a photo'),
+                label: const Text('Foto aufnehmen'),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
                 ),
