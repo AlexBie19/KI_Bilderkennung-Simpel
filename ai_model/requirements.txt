@@ -12,3 +12,13 @@ numpy>=1.24.0,<2.0.0
 # DataFrame library used to read the Kaggle Fashion Product Images styles.csv.
 # Required when --product-dataset-dir is passed; not needed for Fashion-MNIST only.
 pandas>=2.0.0,<3.0.0
+
+# Kaggle CLI tool for downloading datasets from https://kaggle.com.
+# Install and configure Kaggle API credentials before using:
+#   pip install kaggle
+#   mkdir -p ~/.kaggle
+#   cp kaggle.json ~/.kaggle/
+#   chmod 600 ~/.kaggle/kaggle.json
+# Then download a dataset with:
+#   kaggle datasets download -d paramaggarwal/fashion-product-images-small
+kaggle>=2.0.0

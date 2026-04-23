@@ -10,7 +10,7 @@
 ///
 /// Input / output format
 /// ---------------------
-/// • Input  : flat [Float32List] of size 96 × 96 × 3 = 27 648 values in
+/// • Input  : flat [Float32List] of size 128 × 128 × 3 = 49 152 values in
 ///            row-major, channel-last order, values in [−1.0, 1.0].
 ///            Produced by [ImagePreprocessingService.preprocessImageForMobileNetV2].
 /// • Output : 10 softmax probabilities (one per Fashion-MNIST class).
@@ -58,13 +58,15 @@ class ClothingClassifierService {
   static Future<ClothingClassifierService> load() async {
     final Interpreter interpreter = await Interpreter.fromAsset(
       _modelAssetPath,
-      options: InterpreterOptions()..threads = 2,
+      options: InterpreterOptions()..threads = 1,
     );
-    // Allocate input / output tensors based on the model's shape metadata.
+    // Explicitly set input shape [1, 128, 128, 3] before allocating.
+    // Without this call, TFLite may not finalize tensor shapes and throws
+    // 'Failed precondition' when invoke() is called.
+    interpreter.resizeInputTensor(0, [1, 128, 128, 3]);
     interpreter.allocateTensors();
 
-    final String labelsContent =
-        await rootBundle.loadString(_labelsAssetPath);
+    final String labelsContent = await rootBundle.loadString(_labelsAssetPath);
     final List<String> labels = labelsContent
         .split('\n')
         .map((String l) => l.trim())
@@ -82,26 +84,36 @@ class ClothingClassifierService {
   ///
   /// [inputTensor] must be the [Float32List] produced by
   /// [ImagePreprocessingService.preprocessImageForMobileNetV2]
-  /// (27 648 values, shape 96 × 96 × 3, range [−1, 1]).
+  /// (49 152 values, shape 128 x 128 x 3, range [-1, 1]).
   ClassificationResult classifyClothing(Float32List inputTensor) {
     // Determine the model's actual output size from its tensor metadata so
     // the code stays correct even if the label count changes.
-    final int numberOfClasses = _tfliteInterpreter
-        .getOutputTensor(0)
-        .shape
-        .last;
+    final int numberOfClasses =
+        _tfliteInterpreter.getOutputTensor(0).shape.last;
 
-    // Prepare output buffer: shape [1, numberOfClasses].
-    final List<List<double>> outputBuffer = List.generate(
-      1,
-      (_) => List.filled(numberOfClasses, 0.0),
-    );
+    // Copy input bytes directly into the model's input tensor and invoke.
+    // Using invoke() instead of run() avoids type-mismatch issues that
+    // arise when passing a flat Float32List to run() in tflite_flutter 0.12.x.
+    try {
+      final Uint8List inputBytes = inputTensor.buffer.asUint8List();
+      _tfliteInterpreter
+          .getInputTensor(0)
+          .data
+          .setRange(0, inputBytes.length, inputBytes);
+      _tfliteInterpreter.invoke();
+    } catch (e) {
+      throw StateError(
+        'TFLite inference failed: $e. '
+        'Input tensor length: ${inputTensor.length} '
+        '(expected ${128 * 128 * 3} for 128x128x3). '
+        'Output shape: ${_tfliteInterpreter.getOutputTensor(0).shape}',
+      );
+    }
 
-    // Pass the flat Float32List directly – tflite_flutter maps it to the
-    // model's [1, 96, 96, 3] input tensor automatically.
-    _tfliteInterpreter.run(inputTensor, outputBuffer);
-
-    final List<double> probabilities = outputBuffer[0];
+    // Read the output directly from the output tensor buffer.
+    final Float32List rawOutput =
+        _tfliteInterpreter.getOutputTensor(0).data.buffer.asFloat32List();
+    final List<double> probabilities = rawOutput.toList();
 
     // Build top-3 predictions (sorted by confidence, descending).
     final List<_IndexedScore> indexed = List.generate(

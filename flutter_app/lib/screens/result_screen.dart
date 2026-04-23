@@ -64,19 +64,21 @@ class _ResultScreenState extends State<ResultScreen> {
       // Resizes to 128×128 RGB, normalises to [−1, 1] (MobileNetV2 format).
       final Float32List preprocessedInputTensor =
           ImagePreprocessingService.preprocessImageForMobileNetV2(
-        widget.capturedImageFile,
-      );
+            widget.capturedImageFile,
+          );
 
       // --- Step 3: Run inference and color analysis concurrently ---------
       // Both tasks read the same file but do independent work, so they can
       // run in parallel via Future.wait.
       final results = await Future.wait([
         // Clothing type inference (async wrapper around synchronous TFLite call)
-        Future(() =>
-            classifierService!.classifyClothing(preprocessedInputTensor)),
+        Future(
+          () => classifierService!.classifyClothing(preprocessedInputTensor),
+        ),
         // HSV color analysis (CPU-bound, wrapped in Future for concurrency)
-        Future(() =>
-            ColorAnalysisService.analyzeColor(widget.capturedImageFile)),
+        Future(
+          () => ColorAnalysisService.analyzeColor(widget.capturedImageFile),
+        ),
       ]);
 
       final ClassificationResult clothingResult =
@@ -95,13 +97,20 @@ class _ResultScreenState extends State<ResultScreen> {
           _isLoading = false;
         });
       }
-    } catch (classificationError) {
+    } catch (classificationError, stackTrace) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Klassifizierung fehlgeschlagen:\n$classificationError';
+          // Provide detailed error info for debugging
+          _errorMessage =
+              'Klassifizierung fehlgeschlagen:\n\n'
+              'Fehler: $classificationError\n\n'
+              'Stack: ${stackTrace.toString().split('\n').take(5).join('\n')}';
           _isLoading = false;
         });
       }
+      // Print full stack trace to console for debugging
+      print('Classification error: $classificationError');
+      print('Stack trace:\n$stackTrace');
     } finally {
       // Always release the interpreter even if an error occurred.
       classifierService?.dispose();
@@ -113,10 +122,7 @@ class _ResultScreenState extends State<ResultScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ergebnis'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Ergebnis'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -158,10 +164,7 @@ class _ResultScreenState extends State<ResultScreen> {
         children: [
           CircularProgressIndicator(),
           SizedBox(height: 16),
-          Text(
-            'Kleidungsstück wird analysiert…',
-            textAlign: TextAlign.center,
-          ),
+          Text('Kleidungsstück wird analysiert…', textAlign: TextAlign.center),
         ],
       );
     }

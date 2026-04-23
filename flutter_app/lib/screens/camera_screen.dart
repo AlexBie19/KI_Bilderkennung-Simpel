@@ -112,7 +112,7 @@ class _CameraScreenState extends State<CameraScreen>
     final CameraController newCameraController = CameraController(
       selectedCamera,
       // ResolutionPreset.high gives a sharp live preview.
-      // The 96×96 downscale for MobileNetV2 happens in ImagePreprocessingService
+      // Downscaling to 128x128 for MobileNetV2 happens in ImagePreprocessingService
       // *after* capture, so the user always sees a crisp full-resolution view.
       ResolutionPreset.high,
       enableAudio: false, // Audio is not needed for image classification.
@@ -155,7 +155,9 @@ class _CameraScreenState extends State<CameraScreen>
     } catch (captureError) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Foto konnte nicht aufgenommen werden: $captureError')),
+          SnackBar(
+              content:
+                  Text('Foto konnte nicht aufgenommen werden: $captureError')),
         );
       }
     } finally {
